@@ -12,6 +12,10 @@ next:
   add another: press its number now (after you edit the draft: ctrl+x tab first)
 ```
 
+## Versions
+
+1.0.0 is this fork's first public release (tag `v1.0.0`). Before it went public the fork was numbered 1.2.0 to 1.8.0 on top of upstream's 1.0.0; the history keeps those commits. Upstream's own version is still 1.0.0 too: the two install under different names (`next-steps@kennethwkz` here, `next-steps@claude-community` upstream).
+
 ## What the fork changes
 
 - **Pick several.** Picking a suggestion no longer hides the list. The first pick fills an empty prompt box; each further pick is added on a new line, so the draft can hold several suggestions. Picked rows show `(added)`. Picking a row whose text is still in the draft does nothing (a toast says so); if you deleted it from the draft, you can pick it again.
@@ -34,11 +38,13 @@ claude plugin marketplace add KennethWKZ/next-steps
 claude plugin install next-steps@kennethwkz
 ```
 
+That follows `main`. To stay on a release, add the tag instead: `claude plugin marketplace add KennethWKZ/next-steps#v1.0.0` (a branch or tag name; a commit hash is not accepted).
+
 If you have `next-steps@claude-community`, turn it off first (`claude plugin disable next-steps@claude-community`): both would draw a list and use the same 1/2/3/9/0 keys. Then run `/reload-plugins` in any open session. It needs a Claude Code that loads plugin hooks modules; tested on 2.1.330.
 
 To work on it, add a folder marketplace that lists this folder (`claude plugin marketplace add <folder>`): Claude Code then reads it straight from disk, and after an edit `/reload-plugins` loads it. Check with `claude plugin validate .` and `claude plugin test .`.
 
-From the heeler-kit zip, this folder is its own one-plugin marketplace (`heeler-kit`), and `bash install.sh --with-next-steps` does the steps above for it: it copies the folder to `~/.local/share/heeler-kit/next-steps`, adds that as a marketplace, turns off `next-steps@claude-community` if it is on, and installs `next-steps@heeler-kit`. Run it again after unpacking a newer zip.
+heeler-kit's `bash install.sh --with-next-steps` installs this plugin from GitHub at a tested tag (`KennethWKZ/next-steps#v1.0.0`), turns off `next-steps@claude-community` if it is on, and removes an older `next-steps@heeler-kit` copy.
 
 ## Keeping up with upstream
 
