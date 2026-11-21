@@ -459,6 +459,68 @@ async function add($: EngineInterface, indices: readonly number[], nothingToAdd:
   }
 }
 
+// One submission of a phone pick that includes a slash command: a slash pick
+// runs as its command, and plain picks next to each other go as one prompt,
+// one per line, as a pick without a slash command does.
+type SendStep =
+  | { kind: 'command'; numbers: string; line: string; command: string; args: string }
+  | { kind: 'prompt'; numbers: string; line: string; text: string }
+
+function sendSteps(picks: readonly number[], items: readonly Suggestion[]): SendStep[] {
+  const steps: SendStep[] = []
+  for (const index of picks) {
+    const text = items[index]?.prompt ?? ''
+    const number = String(index + 1)
+    const slash = /^\/(\S+)\s*([\s\S]*)$/.exec(text)
+    const last = steps.at(-1)
+    if (slash !== null) {
+      steps.push({ kind: 'command', numbers: number, line: text, command: slash[1] ?? '', args: (slash[2] ?? '').trim() })
+    } else if (last?.kind === 'prompt') {
+      steps[steps.length - 1] = { ...last, numbers: `${last.numbers},${number}`, line: `${last.line}\n${text}`, text: `${last.text}\n${text}` }
+    } else {
+      steps.push({ kind: 'prompt', numbers: number, line: text, text })
+    }
+  }
+  return steps
+}
+
+const OWN_COMMANDS = new Set(['next', 'next-compare'])
+
+// A dropped prompt goes back into the box. Empty it when it still holds just
+// the typed numbers, or the phone's next send would land after them.
+async function clearTyped($: EngineInterface, typed: string): Promise<void> {
+  try {
+    const box = await $.prompt.read()
+    if (box.text.trim() === typed.trim()) await $.prompt.fill({ text: '', mode: 'replace' })
+  } catch (error) {
+    $.ui.log(`could not clear the typed numbers: ${String(error)}`, { to: 'debug' })
+  }
+}
+
+// Each step waits for the one before it to be taken (a command run, a prompt
+// entered), and both kinds queue until the session is idle, so they run in the
+// order typed. A step that fails stops the rest; it and every one after it are
+// printed, so nothing picked is lost.
+async function sendInOrder($: EngineInterface, steps: readonly SendStep[]): Promise<void> {
+  for (const [i, step] of steps.entries()) {
+    let failure: string | null = null
+    try {
+      if (step.kind === 'command') {
+        await $.command.run({ command: step.command, args: step.args })
+      } else {
+        const entered = await $.prompt.submit({ text: step.text, asUser: true })
+        if (entered.drop !== undefined) failure = entered.drop
+      }
+    } catch (error) {
+      failure = String(error)
+    }
+    if (failure === null) continue
+    $.ui.log(`next ${step.numbers} could not be sent: ${failure}`)
+    for (const rest of steps.slice(i)) $.ui.log(`next ${rest.numbers} not sent: ${rest.line}`)
+    return
+  }
+}
+
 export const register: Register = (on, options) => {
   const minTurnChars = typeof options?.minAnswerChars === 'number' ? options.minAnswerChars : 80
   const suggestsSkills = options?.suggestSkills !== false
@@ -533,8 +595,9 @@ export const register: Register = (on, options) => {
   // comes in as a paste, which the band's hotkeys and the prompt.edit hook
   // leave alone. A slash-command suggestion cannot be swapped in here (the
   // command check has already run, so the model would get "/name" as plain
-  // text), nor combined with others: then nothing is sent and the line to
-  // send on its own is printed. "3." or "option 3" reaches Claude as typed.
+  // text): when one is picked, this prompt is dropped and the picks go out as
+  // their own command runs and prompts, in the order typed (sendInOrder).
+  // "3." or "option 3" reaches Claude as typed.
   on('prompt.submit', async ($, e, next) => {
     await restoring
     // What compare mode's small-model request sees as the last prompt.
@@ -558,22 +621,22 @@ export const register: Register = (on, options) => {
     $.ui.log(`next: typed ${JSON.stringify(e.text.trim())}`)
     const numbers = picks.map(index => index + 1).join(',')
     const prompts = picks.map(index => current.items[index]?.prompt ?? '')
-    if (prompts.some(text => text.startsWith('/'))) {
-      // Nothing is sent, so print every pick in the order typed, not only the
-      // slash ones: the others would otherwise be lost with the dropped prompt.
-      const why = picks.length === 1 ? 'it runs only when sent as typed' : 'it runs only sent on its own, as typed'
-      for (const index of picks) {
-        const text = current.items[index]?.prompt ?? ''
-        $.ui.log(
-          text.startsWith('/')
-            ? `next ${index + 1}: a slash command; ${why}: ${text}`
-            : `next ${index + 1} not sent: ${text}`,
-        )
-      }
-      return { drop: `next-steps: ${numbers} includes a slash command` }
-    }
     offer = { ...current, picked: current.picked.map((was, i) => was || picks.includes(i)) }
     save($)
+    if (prompts.some(text => text.startsWith('/'))) {
+      // A slash command can't be swapped in here, so this prompt is dropped and
+      // the picks go out as their own submissions, in the order typed. They
+      // start from a clock.after dispatch: called inside this hook, which the
+      // turn waits on, $.command.run and $.prompt.submit reject.
+      const steps = sendSteps(picks, current.items)
+      for (const step of steps) $.ui.log(`next ${step.numbers} queued: ${step.line}`)
+      lastPrompt = prompts.join('\n')
+      const typed = e.text
+      $.clock.after(0, () => void clearTyped($, typed).then(() => sendInOrder($, steps)))
+      return {
+        drop: picks.length === 1 ? `next-steps: ${numbers} runs as a slash command` : `next-steps: ${numbers} sent one after another`,
+      }
+    }
     for (const [i, index] of picks.entries()) $.ui.log(`next ${index + 1} sent: ${prompts[i]}`)
     lastPrompt = prompts.join('\n')
     return next({ ...e, text: lastPrompt })
@@ -648,7 +711,12 @@ export const register: Register = (on, options) => {
       let haikuRun: Promise<Run> | null = null
       try {
         // Without the list the fork still suggests; slash prompts go unchecked.
-        const commands = await $.command.list().catch(() => null)
+        // This plugin's own commands are left out: they are not next steps,
+        // and one it runs itself ($.command.run) never reaches its own hook.
+        const commands = await $.command
+          .list()
+          .then(all => all.filter(command => !(command.source === 'plugin' && OWN_COMMANDS.has(command.name))))
+          .catch(() => null)
         const known = commands === null ? null : new Set(commands.map(command => command.name))
         const skills = suggestsSkills && commands !== null ? skillList(commands) : ''
         // The small model runs beside the fork, not after it.

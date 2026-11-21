@@ -1,4 +1,4 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
 const SUGGESTIONS = JSON.stringify([
@@ -45,6 +45,8 @@ type Extra = {
   // Ids placed as transcript rows; `placeFails` makes $.ui.place throw.
   places?: string[]
   placeFails?: boolean
+  // Commands whose $.command.run rejects, as the engine does past a Stop.
+  failCommands?: string[]
 }
 
 function engine(
@@ -127,6 +129,13 @@ function engine(
   on('prompt.submit', (_, e) => {
     sent.push(e.text)
     return { text: e.text }
+  })
+  // Core's own command run, recorded in `sent` as typed, so a test sees the
+  // order of commands and prompts together.
+  on('command.run', (_, e) => {
+    if (extra.failCommands?.includes(e.command)) throw new Error(`no ${e.command} now`)
+    sent.push(e.args === '' ? `/${e.command}` : `/${e.command} ${e.args}`)
+    return { value: { text: '' } } as never
   })
   return { box, fills, notes, logs, sent }
 }
@@ -586,22 +595,23 @@ test('a number past a short list goes through as typed', async ($, on) => {
   expect(sent).toEqual(['2'])
 })
 
-test('a number for a slash-command suggestion is dropped and the line printed', async ($, on) => {
+test('a number for a slash-command suggestion runs that command', async ($, on) => {
   const withSlash = JSON.stringify([
     { label: 'review', prompt: '/code-review high' },
     { label: 'commit', prompt: 'commit the change' },
   ])
+  const clock = mock.clock(on)
   const { sent, logs } = engine(on, withSlash, ['code-review'])
   await completeTurn($, 't1')
   logs.length = 0
 
   const result = await send($, '1')
+  // The typed "1" is dropped; the command runs from its own dispatch.
+  expect(result).toEqual({ drop: 'next-steps: 1 runs as a slash command' })
   expect(sent).toEqual([])
-  expect(result).toEqual({ drop: 'next-steps: 1 includes a slash command' })
-  expect(logs).toEqual([
-    'next: typed "1"',
-    'next 1: a slash command; it runs only when sent as typed: /code-review high',
-  ])
+  await clock.settle()
+  expect(sent).toEqual(['/code-review high'])
+  expect(logs).toEqual(['next: typed "1"', 'next 1 queued: /code-review high'])
 })
 
 test('several numbers send those suggestions as one prompt, one per line, in the order typed', async ($, on) => {
@@ -662,32 +672,121 @@ test('several numbers with one past a short list go through as typed', async ($,
   expect(sent).toEqual(['1,3', 'commit the change\npush the branch'])
 })
 
-test('a slash command among several picks sends nothing and prints its line', async ($, on) => {
+test('picks with a slash command go out one after another in the order typed', async ($, on) => {
   const withSlash = JSON.stringify([
     { label: 'review', prompt: '/code-review high' },
     { label: 'commit', prompt: 'commit the change' },
+    { label: 'push', prompt: 'push the branch' },
   ])
+  const clock = mock.clock(on)
   const { sent, logs } = engine(on, withSlash, ['code-review'])
   await completeTurn($, 't1')
   logs.length = 0
 
-  const result = await send($, '2,1')
-  expect(sent).toEqual([])
-  expect(result).toEqual({ drop: 'next-steps: 2,1 includes a slash command' })
-  // Every pick is printed in the order typed, so the plain one is not lost.
+  const result = await send($, '2,1,3')
+  expect(result).toEqual({ drop: 'next-steps: 2,1,3 sent one after another' })
+  await clock.settle()
+  // Plain picks on either side of the command are not merged across it.
+  expect(sent).toEqual(['commit the change', '/code-review high', 'push the branch'])
   expect(logs).toEqual([
-    'next: typed "2,1"',
-    'next 2 not sent: commit the change',
-    'next 1: a slash command; it runs only sent on its own, as typed: /code-review high',
+    'next: typed "2,1,3"',
+    'next 2 queued: commit the change',
+    'next 1 queued: /code-review high',
+    'next 3 queued: push the branch',
   ])
-  // 9 picks it too.
+})
+
+test('plain picks next to each other go as one prompt beside the command; 9 picks them all', async ($, on) => {
+  const withSlash = JSON.stringify([
+    { label: 'review', prompt: '/code-review high' },
+    { label: 'commit', prompt: 'commit the change' },
+    { label: 'push', prompt: 'push the branch' },
+  ])
+  const clock = mock.clock(on)
+  const { sent, logs } = engine(on, withSlash, ['code-review'])
+  await completeTurn($, 't1')
   logs.length = 0
-  expect(await send($, '9')).toEqual({ drop: 'next-steps: 1,2 includes a slash command' })
+
+  expect(await send($, '9')).toEqual({ drop: 'next-steps: 1,2,3 sent one after another' })
+  await clock.settle()
+  expect(sent).toEqual(['/code-review high', 'commit the change\npush the branch'])
   expect(logs).toEqual([
     'next: typed "9"',
-    'next 1: a slash command; it runs only sent on its own, as typed: /code-review high',
-    'next 2 not sent: commit the change',
+    'next 1 queued: /code-review high',
+    'next 2,3 queued: commit the change\npush the branch',
   ])
+})
+
+test('a command that cannot run stops the rest, and each step not sent is printed', async ($, on) => {
+  const withSlash = JSON.stringify([
+    { label: 'commit', prompt: 'commit the change' },
+    { label: 'review', prompt: '/code-review high' },
+    { label: 'push', prompt: 'push the branch' },
+  ])
+  const clock = mock.clock(on)
+  const { sent, logs } = engine(on, withSlash, ['code-review'], undefined, undefined, { failCommands: ['code-review'] })
+  await completeTurn($, 't1')
+  logs.length = 0
+
+  await send($, '1,2,3')
+  await clock.settle()
+  expect(sent).toEqual(['commit the change'])
+  const after = logs.slice(4)
+  // The kit words the rejection itself; what matters is which step and what follows.
+  expect(after[0]?.startsWith('next 2 could not be sent: ')).toBe(true)
+  expect(after.slice(1)).toEqual([
+    'next 2 not sent: /code-review high',
+    'next 3 not sent: push the branch',
+  ])
+})
+
+test('the typed numbers put back in the box are cleared before the picks go out', async ($, on) => {
+  const withSlash = JSON.stringify([
+    { label: 'review', prompt: '/code-review high' },
+    { label: 'commit', prompt: 'commit the change' },
+  ])
+  const clock = mock.clock(on)
+  const { box, sent } = engine(on, withSlash, ['code-review'])
+  await completeTurn($, 't1')
+
+  await send($, '1,2')
+  // The engine puts a dropped prompt back into the box.
+  box.text = '1,2'
+  await clock.settle()
+  expect(box.text).toBe('')
+  expect(sent).toEqual(['/code-review high', 'commit the change'])
+
+  // Anything else in the box is the person's own and stays.
+  await completeTurn($, 't2')
+  await send($, '2,1')
+  box.text = 'my own draft'
+  await clock.settle()
+  expect(box.text).toBe('my own draft')
+})
+
+test("this plugin's own commands are never offered", async ($, on) => {
+  const withOwn = JSON.stringify([
+    { label: 'show again', prompt: '/next' },
+    { label: 'commit', prompt: 'commit the change' },
+  ])
+  const { sent } = engine(on, withOwn, ['next', 'next-compare'])
+  await completeTurn($, 't1')
+  await send($, '1')
+  expect(sent).toEqual(['commit the change'])
+})
+
+test('a prompt the plugin sends is not read as a pick', async ($, on) => {
+  const withSlash = JSON.stringify([
+    { label: 'review', prompt: '/code-review high' },
+    { label: 'one', prompt: '1' },
+  ])
+  const clock = mock.clock(on)
+  const { sent } = engine(on, withSlash, ['code-review'])
+  await completeTurn($, 't1')
+  await send($, '1,2')
+  await clock.settle()
+  // The plugin's own "1" is plain text, not suggestion 1 again.
+  expect(sent).toEqual(['/code-review high', '1'])
 })
 
 test('the raw input is logged before the swap, so 9 and 1,2,3 can be told apart', async ($, on) => {
