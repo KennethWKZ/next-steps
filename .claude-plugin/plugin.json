@@ -1,6 +1,6 @@
 {
   "name": "next-steps",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "After each turn, suggests up to three next prompts above the input. Press 1, 2 or 3 to add one to the prompt box as a draft (pick several to combine them), 0 to dismiss, /next to show the last suggestions again. Sending just numbers (3, 1,2, 12, or 9 for all; from a phone through Heeler) sends those suggestions.",
   "author": {
     "name": "Thariq Shihipar"
