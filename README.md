@@ -27,7 +27,7 @@ The plugin never sends a prompt itself. Sending hides the list.
 
 ## Install
 
-From GitHub (this repository is its own one-plugin marketplace, `kennethwkz`):
+From GitHub (this repository is its own one-plugin marketplace):
 
 ```sh
 claude plugin marketplace add KennethWKZ/next-steps
@@ -39,6 +39,10 @@ If you have `next-steps@claude-community`, turn it off first (`claude plugin dis
 To work on it, add a folder marketplace that lists this folder (`claude plugin marketplace add <folder>`): Claude Code then reads it straight from disk, and after an edit `/reload-plugins` loads it. Check with `claude plugin validate .` and `claude plugin test .`.
 
 From the heeler-kit zip, this folder is its own one-plugin marketplace (`heeler-kit`), and `bash install.sh --with-next-steps` does the steps above for it: it copies the folder to `~/.local/share/heeler-kit/next-steps`, adds that as a marketplace, turns off `next-steps@claude-community` if it is on, and installs `next-steps@heeler-kit`. Run it again after unpacking a newer zip.
+
+## Keeping up with upstream
+
+`UPSTREAM` records the upstream commit this fork includes (`anthropics/claude-plugins-community`, path `next-steps`). Every Monday a GitHub Action (`.github/workflows/upstream-check.yml`, on `ubuntu-24.04-arm`) checks whether upstream has newer commits on that path and, if so, opens one issue listing them with a compare link. The fork's history starts from a copy, so there is no rebase: port the changes by hand, run the tests, bump the version and set `base` in `UPSTREAM` to the upstream commit they came from. Run it by hand from the Actions tab; its `base` and `dry_run` inputs test it without opening an issue.
 
 ## Licence
 

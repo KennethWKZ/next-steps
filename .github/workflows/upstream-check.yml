@@ -1,0 +1,88 @@
+# Weekly: has upstream next-steps moved past the commit this fork includes (UPSTREAM)?
+# If it has, open one issue (none while an open one has the same title) listing the new
+# upstream commits and the compare link. No third-party actions: curl, jq and the token.
+name: Upstream check
+
+on:
+  schedule:
+    - cron: "17 3 * * 1" # Mondays 03:17 UTC
+  workflow_dispatch:
+    inputs:
+      base:
+        description: "Pretend the fork is based on this upstream commit (testing)"
+        required: false
+        default: ""
+      dry_run:
+        description: "Print the issue instead of opening it"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    # arm64 first: GitHub's arm64 runner, free on public repos.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      BASE_OVERRIDE: ${{ inputs.base }}
+      DRY_RUN: ${{ inputs.dry_run }}
+    steps:
+      - name: Compare upstream with UPSTREAM
+        run: |
+          set -euo pipefail
+          api() {
+            curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" "$@"
+          }
+          upstream_file=$(api "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/UPSTREAM?ref=$GITHUB_SHA" | jq -r .content | base64 -d)
+          field() { printf '%s\n' "$upstream_file" | sed -n "s/^$1=//p"; }
+          repo=$(field repo); path=$(field path); base=$(field base)
+          if [ -n "${BASE_OVERRIDE:-}" ]; then base="$BASE_OVERRIDE"; fi
+          case "$repo/$path/$base" in
+            */*/*/[0-9a-f]*) ;;
+            *) echo "UPSTREAM is incomplete: repo=$repo path=$path base=$base"; exit 1 ;;
+          esac
+
+          # Upstream commits that touched $path, newest first, until the base.
+          commits=$(api "https://api.github.com/repos/$repo/commits?path=$path&per_page=100")
+          latest=$(printf '%s' "$commits" | jq -r '.[0].sha')
+          new=$(printf '%s' "$commits" | jq -r --arg base "$base" '
+            (map(.sha | startswith($base)) | index(true)) as $stop
+            | (if $stop == null then . else .[0:$stop] end)
+            | map("- [`\(.sha[0:9])`](\(.html_url)) \(.commit.author.date[0:10]) \(.commit.message | split("\n")[0])")
+            | join("\n")')
+          if [ -z "$new" ]; then
+            echo "Upstream $repo/$path is at ${latest:0:9}, which this fork includes (base ${base:0:9}). Nothing to do."
+            exit 0
+          fi
+          if ! printf '%s' "$commits" | jq -e --arg base "$base" 'any(.[]; .sha | startswith($base))' >/dev/null; then
+            new="$new
+          - (the base ${base:0:9} is not among upstream's last 100 commits on $path: check by hand)"
+          fi
+
+          title="Upstream next-steps moved past ${base:0:9}"
+          body="Upstream \`$repo\` has new commits on \`$path\` since \`${base:0:9}\`, the commit this fork includes (see \`UPSTREAM\`):
+
+          $new
+
+          Compare: https://github.com/$repo/compare/$base...$latest
+
+          To catch up: port the changes into the fork by hand, run \`claude plugin test .\`, bump the version, set \`base\` in \`UPSTREAM\` to \`$latest\`, and publish. Close this issue when done."
+          body=$(printf '%s\n' "$body" | sed 's/^          //')
+
+          if [ "${DRY_RUN:-false}" = "true" ]; then
+            printf 'Dry run. Would open: %s\n\n%s\n' "$title" "$body"
+            exit 0
+          fi
+          open=$(api "https://api.github.com/repos/$GITHUB_REPOSITORY/issues?state=open&per_page=100" \
+            | jq -r --arg title "$title" 'map(select(.pull_request == null and .title == $title)) | length')
+          if [ "$open" != "0" ]; then
+            echo "An open issue already says: $title"
+            exit 0
+          fi
+          jq -n --arg title "$title" --arg body "$body" '{title: $title, body: $body}' \
+            | api -X POST "https://api.github.com/repos/$GITHUB_REPOSITORY/issues" --data @- | jq -r .html_url

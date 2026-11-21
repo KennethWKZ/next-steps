@@ -1,0 +1,5 @@
+# The upstream commit this fork includes, read by .github/workflows/upstream-check.yml.
+# After porting newer upstream changes, set base to the upstream commit they came from.
+repo=anthropics/claude-plugins-community
+path=next-steps
+base=2ead8ff9db1f2451966fe8fb1dba3396e044f0a7
