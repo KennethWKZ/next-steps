@@ -573,7 +573,10 @@ export const register: Register = (on, options) => {
 
   // A new turn (typed or otherwise) hides whatever was offered; the list
   // itself stays for /next.
+  // Main loop only: a subagent's run (agentId set) starts and ends turns of
+  // its own, which must neither hide the list nor ask for a new one.
   on('turn.start', async ($, e, next) => {
+    if (e.agentId !== undefined) return next(e)
     filledDraft = null
     if (view.kind !== 'hidden') show($, { kind: 'hidden' })
     return next(e)
@@ -622,7 +625,9 @@ export const register: Register = (on, options) => {
   // Turn over: ask the fork, detached, so the turn's completion never waits on it.
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
-    if (e.reason !== 'answer' || e.answer.trim().length < minTurnChars) return result
+    // A subagent's turn ending (agentId set) is not an answer to the person: no
+    // fork for it (each would read the whole conversation) and no list mid-turn.
+    if (e.agentId !== undefined || e.reason !== 'answer' || e.answer.trim().length < minTurnChars) return result
     const turnId = e.turnId
     show($, { kind: 'loading', turnId })
     // Compare mode counts the answers it ran on, and reads its inputs now.

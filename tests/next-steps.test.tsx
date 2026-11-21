@@ -1040,3 +1040,21 @@ test('a switch saved in another session does not apply', async ($, on) => {
   await completeTurn($, 't1')
   expect(forkRequests.map(r => r.effort)).toEqual(['low'])
 })
+
+test("a subagent's turn neither asks for a list nor hides the main one", async ($, on) => {
+  const forkRequests: { effort?: string }[] = []
+  const places: string[] = []
+  engine(on, SUGGESTIONS, [], undefined, 'session-1', { forkRequests, places })
+  await completeTurn($, 't1')
+  expect(forkRequests.length).toBe(1)
+  // A subagent runs and finishes inside the next main turn.
+  await $.turn.start({ turnId: 'a1', agentId: 'agent-1', text: 'review the diff' } as never)
+  await $.turn.complete({ turnId: 'a1', agentId: 'agent-1', reason: 'answer', answer: LONG_ANSWER } as never)
+  await settle()
+  expect(forkRequests.length).toBe(1)
+  expect(places).toEqual(['l-t1'])
+  // The main list is still up.
+  const ui = await $.ui.mount({ ...BAND, props: BAND_PROPS })
+  expect(await ui.find({ key: 'pick-0' })).toBeDefined()
+  await ui.unmount()
+})
