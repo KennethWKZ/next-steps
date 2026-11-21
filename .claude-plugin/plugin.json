@@ -1,12 +1,18 @@
 {
   "name": "next-steps",
-  "version": "1.2.0",
-  "description": "After each turn, suggests up to three next prompts above the input. Press 1, 2 or 3 to add one to the prompt box as a draft (pick several to combine them), 0 to dismiss, /next to show the last suggestions again.",
+  "version": "1.8.0",
+  "description": "After each turn, suggests up to three next prompts above the input. Press 1, 2 or 3 to add one to the prompt box as a draft (pick several to combine them), 0 to dismiss, /next to show the last suggestions again. Sending just numbers (3, 1,2, 12, or 9 for all; from a phone through Heeler) sends those suggestions.",
   "author": {
     "name": "Thariq Shihipar"
   },
   "license": "MIT",
-  "keywords": ["suggestions", "next-steps", "prompt", "function-hooks", "ui"],
+  "keywords": [
+    "suggestions",
+    "next-steps",
+    "prompt",
+    "function-hooks",
+    "ui"
+  ],
   "userConfig": {
     "minAnswerChars": {
       "type": "number",
@@ -21,6 +27,21 @@
       "description": "Tell the suggester which skills and slash commands this session has, so a suggestion can be one of them.",
       "required": false,
       "default": true
+    },
+    "printSuggestions": {
+      "type": "boolean",
+      "title": "Print suggestions in the transcript",
+      "description": "Also print each new list as text lines in the transcript, so a remote view of the terminal (Heeler) can read and copy them.",
+      "required": false,
+      "default": true
+    },
+    "cacheCheckTokens": {
+      "type": "number",
+      "title": "Cache write that turns low effort off",
+      "description": "After each suggestion request, a cache write this many tokens or larger, and larger than the cache read, means low effort made a second cache copy of the conversation; low effort then stays off for the session.",
+      "required": false,
+      "default": 20000
     }
-  }
+  },
+  "types": "./types/index.d.ts"
 }
