@@ -1,0 +1,3 @@
+# Written by Claude Code each time it loads the plugin; claude-code-mcp/ lists the local MCP tools.
+.claude-plugin/types/
+.DS_Store
