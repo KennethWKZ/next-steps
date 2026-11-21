@@ -14,7 +14,7 @@ next:
 
 ## Versions
 
-1.0.0 is this fork's first public release (tag `v1.0.0`). Before it went public the fork was numbered 1.2.0 to 1.8.0 on top of upstream's 1.0.0; the history keeps those commits. Upstream's own version is still 1.0.0 too: the two install under different names (`next-steps@kennethwkz` here, `next-steps@claude-community` upstream).
+1.0.0 is this fork's first public release (tag `v1.0.0`); 1.0.1 (tag `v1.0.1`) stops subagent turns from triggering a list. Before it went public the fork was numbered 1.2.0 to 1.8.0 on top of upstream's 1.0.0; the history keeps those commits. Upstream's own version is still 1.0.0 too: the two install under different names (`next-steps@kennethwkz` here, `next-steps@claude-community` upstream).
 
 ## What the fork changes
 
@@ -63,13 +63,13 @@ claude plugin marketplace add KennethWKZ/next-steps
 claude plugin install next-steps@kennethwkz
 ```
 
-That follows `main`. To stay on a release, add the tag instead: `claude plugin marketplace add KennethWKZ/next-steps#v1.0.0` (a branch or tag name; a commit hash is not accepted).
+That follows `main`. To stay on a release, add the tag instead: `claude plugin marketplace add KennethWKZ/next-steps#v1.0.1` (a branch or tag name; a commit hash is not accepted).
 
 If you have `next-steps@claude-community`, turn it off first (`claude plugin disable next-steps@claude-community`): both would draw a list and use the same 1/2/3/9/0 keys. Then run `/reload-plugins` in any open session. It needs a Claude Code that loads plugin hooks modules; tested on 2.1.330.
 
 To work on it, clone this repository and add the clone instead (`claude plugin marketplace add <path to the clone>`, then `claude plugin install next-steps@kennethwkz`): Claude Code reads it straight from disk, and after an edit `/reload-plugins` loads it. Check with `claude plugin validate .` and `claude plugin test .`. `tools/next-steps-icon.py` redraws the icon.
 
-heeler-kit's `bash install.sh --with-next-steps` installs this plugin from GitHub at a tested tag (`KennethWKZ/next-steps#v1.0.0`), turns off `next-steps@claude-community` if it is on, and removes an older `next-steps@heeler-kit` copy.
+heeler-kit's `bash install.sh --with-next-steps` installs this plugin from GitHub at a tested tag (`KennethWKZ/next-steps#v1.0.1`), turns off `next-steps@claude-community` if it is on, and removes an older `next-steps@heeler-kit` copy.
 
 ## Keeping up with upstream
 
