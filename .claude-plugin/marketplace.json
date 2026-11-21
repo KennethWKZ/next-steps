@@ -1,0 +1,14 @@
+{
+  "name": "kennethwkz",
+  "owner": {
+    "name": "KennethWKZ"
+  },
+  "description": "A fork of next-steps from anthropics/claude-plugins-community: suggested next prompts after each answer, with phone (Heeler) picks by number.",
+  "plugins": [
+    {
+      "name": "next-steps",
+      "source": "./",
+      "description": "Up to three suggested next prompts after each answer; pick by number, also from a phone through Heeler."
+    }
+  ]
+}
