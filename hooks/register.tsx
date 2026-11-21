@@ -557,13 +557,21 @@ export const register: Register = (on, options) => {
     // digits, commas and whitespace reach here; JSON.stringify keeps a newline visible.
     $.ui.log(`next: typed ${JSON.stringify(e.text.trim())}`)
     const numbers = picks.map(index => index + 1).join(',')
-    const slash = picks.map(index => current.items[index]?.prompt ?? '').filter(text => text.startsWith('/'))
-    if (slash.length > 0) {
+    const prompts = picks.map(index => current.items[index]?.prompt ?? '')
+    if (prompts.some(text => text.startsWith('/'))) {
+      // Nothing is sent, so print every pick in the order typed, not only the
+      // slash ones: the others would otherwise be lost with the dropped prompt.
       const why = picks.length === 1 ? 'it runs only when sent as typed' : 'it runs only sent on its own, as typed'
-      for (const line of slash) $.ui.log(`next ${numbers}: a slash command; ${why}: ${line}`)
+      for (const index of picks) {
+        const text = current.items[index]?.prompt ?? ''
+        $.ui.log(
+          text.startsWith('/')
+            ? `next ${index + 1}: a slash command; ${why}: ${text}`
+            : `next ${index + 1} not sent: ${text}`,
+        )
+      }
       return { drop: `next-steps: ${numbers} includes a slash command` }
     }
-    const prompts = picks.map(index => current.items[index]?.prompt ?? '')
     offer = { ...current, picked: current.picked.map((was, i) => was || picks.includes(i)) }
     save($)
     for (const [i, index] of picks.entries()) $.ui.log(`next ${index + 1} sent: ${prompts[i]}`)

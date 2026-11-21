@@ -50,7 +50,7 @@ Anything else goes through as you typed it, so `3.` or `option 3` reaches Claude
 **Good to know**
 
 - Numbers swap only while a list is showing. After you send anything else, or press `0` on the Mac, a bare number goes through as text. `/next` shows the last list again.
-- A suggestion that is a slash command (`/name …`) can't be swapped in, because Claude Code has already decided the prompt is not a command. The plugin sends nothing and shows the line to send on its own.
+- A suggestion that is a slash command (`/name …`) can't be swapped in, because Claude Code has already decided the prompt is not a command. The plugin sends nothing and prints every suggestion you picked, in the order you typed: the slash command to send on its own, and each other pick marked `not sent`.
 - The list survives `/reload-plugins` on the Mac; `/clear` drops it.
 - The list rows are display only: they aren't saved in the transcript file, so `--resume` doesn't bring them back.
 

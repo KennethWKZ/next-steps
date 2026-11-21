@@ -674,12 +674,20 @@ test('a slash command among several picks sends nothing and prints its line', as
   const result = await send($, '2,1')
   expect(sent).toEqual([])
   expect(result).toEqual({ drop: 'next-steps: 2,1 includes a slash command' })
+  // Every pick is printed in the order typed, so the plain one is not lost.
   expect(logs).toEqual([
     'next: typed "2,1"',
-    'next 2,1: a slash command; it runs only sent on its own, as typed: /code-review high',
+    'next 2 not sent: commit the change',
+    'next 1: a slash command; it runs only sent on its own, as typed: /code-review high',
   ])
   // 9 picks it too.
+  logs.length = 0
   expect(await send($, '9')).toEqual({ drop: 'next-steps: 1,2 includes a slash command' })
+  expect(logs).toEqual([
+    'next: typed "9"',
+    'next 1: a slash command; it runs only sent on its own, as typed: /code-review high',
+    'next 2 not sent: commit the change',
+  ])
 })
 
 test('the raw input is logged before the swap, so 9 and 1,2,3 can be told apart', async ($, on) => {
