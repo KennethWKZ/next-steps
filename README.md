@@ -67,7 +67,7 @@ That follows `main`. To stay on a release, add the tag instead: `claude plugin m
 
 If you have `next-steps@claude-community`, turn it off first (`claude plugin disable next-steps@claude-community`): both would draw a list and use the same 1/2/3/9/0 keys. Then run `/reload-plugins` in any open session. It needs a Claude Code that loads plugin hooks modules; tested on 2.1.330.
 
-To work on it, clone this repository and add the clone instead (`claude plugin marketplace add <path to the clone>`, then `claude plugin install next-steps@kennethwkz`): Claude Code reads it straight from disk, and after an edit `/reload-plugins` loads it. Check with `claude plugin validate .` and `claude plugin test .`. `tools/next-steps-icon.py` redraws the icon.
+To work on it, clone this repository and keep the installed release for your everyday sessions. Try a change in a session that loads the clone and turns the installed copy off: `claude --plugin-dir <path to the clone> --settings '{"enabledPlugins":{"next-steps@kennethwkz":false}}'`, and start a new one after each edit. (Adding the clone itself as the marketplace also works, but then every session runs whatever the clone holds, half-finished edits included.) Check with `claude plugin validate .` and `claude plugin test .`. `tools/next-steps-icon.py` redraws the icon.
 
 heeler-kit's `bash install.sh --with-next-steps` installs this plugin from GitHub at a tested tag (`KennethWKZ/next-steps#v1.0.2`), turns off `next-steps@claude-community` if it is on, and removes an older `next-steps@heeler-kit` copy.
 
