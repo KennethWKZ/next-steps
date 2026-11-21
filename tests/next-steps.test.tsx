@@ -47,6 +47,10 @@ type Extra = {
   placeFails?: boolean
   // Commands whose $.command.run rejects, as the engine does past a Stop.
   failCommands?: string[]
+  // Commands $.command.list reports as shipping with Claude Code.
+  builtins?: string[]
+  // Runs inside each command run, before it is recorded (a /clear ending the session).
+  onCommand?: (command: string) => Promise<void>
 }
 
 function engine(
@@ -97,7 +101,13 @@ function engine(
   })
   on(
     'command.list',
-    () => ({ value: commands.map(name => ({ name, description: name, source: 'plugin' })) }) as never,
+    () =>
+      ({
+        value: [
+          ...commands.map(name => ({ name, description: name, source: 'plugin' })),
+          ...(extra.builtins ?? []).map(name => ({ name, description: name, source: 'builtin' })),
+        ],
+      }) as never,
   )
   const notes: string[] = []
   const logs: string[] = []
@@ -132,8 +142,9 @@ function engine(
   })
   // Core's own command run, recorded in `sent` as typed, so a test sees the
   // order of commands and prompts together.
-  on('command.run', (_, e) => {
+  on('command.run', async (_, e) => {
     if (extra.failCommands?.includes(e.command)) throw new Error(`no ${e.command} now`)
+    await extra.onCommand?.(e.command)
     sent.push(e.args === '' ? `/${e.command}` : `/${e.command} ${e.args}`)
     return { value: { text: '' } } as never
   })
@@ -731,7 +742,7 @@ test('a command that cannot run stops the rest, and each step not sent is printe
   await send($, '1,2,3')
   await clock.settle()
   expect(sent).toEqual(['commit the change'])
-  const after = logs.slice(4)
+  const after = logs.filter(line => line.includes('not sent') || line.includes('could not be sent'))
   // The kit words the rejection itself; what matters is which step and what follows.
   expect(after[0]?.startsWith('next 2 could not be sent: ')).toBe(true)
   expect(after.slice(1)).toEqual([
@@ -773,6 +784,41 @@ test("this plugin's own commands are never offered", async ($, on) => {
   await completeTurn($, 't1')
   await send($, '1')
   expect(sent).toEqual(['commit the change'])
+})
+
+test('a built-in that ends or empties the session is never offered; other built-ins are', async ($, on) => {
+  const withBuiltins = JSON.stringify([
+    { label: 'clear', prompt: '/clear' },
+    { label: 'review', prompt: '/code-review high' },
+    { label: 'commit', prompt: 'commit the change' },
+  ])
+  const clock = mock.clock(on)
+  const { sent } = engine(on, withBuiltins, [], undefined, undefined, { builtins: ['clear', 'code-review'] })
+  await completeTurn($, 't1')
+  // The list is now review, commit: 9 runs the review, then sends the commit.
+  await send($, '9')
+  await clock.settle()
+  expect(sent).toEqual(['/code-review high', 'commit the change'])
+})
+
+test('when the session ends between steps, the rest is printed and not sent', async ($, on) => {
+  const withSlash = JSON.stringify([
+    { label: 'review', prompt: '/code-review high' },
+    { label: 'commit', prompt: 'commit the change' },
+  ])
+  const clock = mock.clock(on)
+  const onCommand = async () => {
+    await $.session.end({ reason: 'clear', sessionId: 'session-1', resume: { id: 'session-1' } } as never)
+  }
+  const { sent, logs } = engine(on, withSlash, ['code-review'], undefined, undefined, { onCommand })
+  await completeTurn($, 't1')
+  await send($, '1,2')
+  await clock.settle()
+  expect(sent).toEqual(['/code-review high'])
+  expect(logs.filter(line => line.includes('not sent') || line.includes('could not be sent'))).toEqual([
+    'next 2 could not be sent: the session ended',
+    'next 2 not sent: commit the change',
+  ])
 })
 
 test('a prompt the plugin sends is not read as a pick', async ($, on) => {

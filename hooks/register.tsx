@@ -10,8 +10,8 @@
 // draft. The list stays up after a pick, each picked row marked, until the
 // person sends (turn.start) or presses 0. /next shows the last list again.
 // The top suggestion is also offered as the composer's dim Tab-to-take ghost
-// text ($.prompt.suggest). Nothing is submitted by the plugin, so no origin
-// framing. The fork is also handed the session's skills and slash commands
+// text ($.prompt.suggest). A press only fills the box; the plugin itself
+// submits only for a phone pick that includes a slash command (below). The fork is also handed the session's skills and slash commands
 // ($.command.list), so a suggestion can be "/skill arguments".
 //
 // Remote input (Heeler on a phone, through herdr's agent.prompt) arrives as a
@@ -471,10 +471,10 @@ function sendSteps(picks: readonly number[], items: readonly Suggestion[]): Send
   for (const index of picks) {
     const text = items[index]?.prompt ?? ''
     const number = String(index + 1)
-    const slash = /^\/(\S+)\s*([\s\S]*)$/.exec(text)
+    const slash = slashCommand(text)
     const last = steps.at(-1)
     if (slash !== null) {
-      steps.push({ kind: 'command', numbers: number, line: text, command: slash[1] ?? '', args: (slash[2] ?? '').trim() })
+      steps.push({ kind: 'command', numbers: number, line: text, ...slash })
     } else if (last?.kind === 'prompt') {
       steps[steps.length - 1] = { ...last, numbers: `${last.numbers},${number}`, line: `${last.line}\n${text}`, text: `${last.text}\n${text}` }
     } else {
@@ -484,7 +484,21 @@ function sendSteps(picks: readonly number[], items: readonly Suggestion[]): Send
   return steps
 }
 
+// A slash command's name and arguments, or null for text that runs none.
+function slashCommand(text: string): { command: string; args: string } | null {
+  const match = /^\/(\S+)\s*([\s\S]*)$/.exec(text)
+  return match === null ? null : { command: match[1] ?? '', args: (match[2] ?? '').trim() }
+}
+
 const OWN_COMMANDS = new Set(['next', 'next-compare'])
+// Built-ins that end, empty or replace the conversation: never a next step,
+// and one run from a phone pick would cut the picks after it off from their
+// context. Other built-ins (bundled skills such as /code-review) stay.
+const SESSION_COMMANDS = new Set(['clear', 'compact', 'resume', 'rewind', 'exit', 'quit', 'login', 'logout'])
+
+// Bumped by every session.end (/clear among them): a phone pick's steps stop
+// when the session they were picked in has ended.
+let sessionEnds = 0
 
 // A dropped prompt goes back into the box. Empty it when it still holds just
 // the typed numbers, or the phone's next send would land after them.
@@ -502,17 +516,20 @@ async function clearTyped($: EngineInterface, typed: string): Promise<void> {
 // order typed. A step that fails stops the rest; it and every one after it are
 // printed, so nothing picked is lost.
 async function sendInOrder($: EngineInterface, steps: readonly SendStep[]): Promise<void> {
+  const session = sessionEnds
   for (const [i, step] of steps.entries()) {
-    let failure: string | null = null
-    try {
-      if (step.kind === 'command') {
-        await $.command.run({ command: step.command, args: step.args })
-      } else {
-        const entered = await $.prompt.submit({ text: step.text, asUser: true })
-        if (entered.drop !== undefined) failure = entered.drop
+    let failure: string | null = sessionEnds === session ? null : 'the session ended'
+    if (failure === null) {
+      try {
+        if (step.kind === 'command') {
+          await $.command.run({ command: step.command, args: step.args })
+        } else {
+          const entered = await $.prompt.submit({ text: step.text, asUser: true })
+          if (entered.drop !== undefined) failure = entered.drop
+        }
+      } catch (error) {
+        failure = String(error)
       }
-    } catch (error) {
-      failure = String(error)
     }
     if (failure === null) continue
     $.ui.log(`next ${step.numbers} could not be sent: ${failure}`)
@@ -568,6 +585,7 @@ export const register: Register = (on, options) => {
   // /clear ends the session without a session.start for the next one: drop the
   // list, so a number sent after a /clear is never swapped for old suggestions.
   on('session.end', async ($, e, next) => {
+    sessionEnds += 1
     filledDraft = null
     offer = null
     show($, { kind: 'hidden' })
@@ -623,7 +641,7 @@ export const register: Register = (on, options) => {
     const prompts = picks.map(index => current.items[index]?.prompt ?? '')
     offer = { ...current, picked: current.picked.map((was, i) => was || picks.includes(i)) }
     save($)
-    if (prompts.some(text => text.startsWith('/'))) {
+    if (prompts.some(text => slashCommand(text) !== null)) {
       // A slash command can't be swapped in here, so this prompt is dropped and
       // the picks go out as their own submissions, in the order typed. They
       // start from a clock.after dispatch: called inside this hook, which the
@@ -632,7 +650,11 @@ export const register: Register = (on, options) => {
       for (const step of steps) $.ui.log(`next ${step.numbers} queued: ${step.line}`)
       lastPrompt = prompts.join('\n')
       const typed = e.text
-      $.clock.after(0, () => void clearTyped($, typed).then(() => sendInOrder($, steps)))
+      $.clock.after(0, () => {
+        clearTyped($, typed)
+          .then(() => sendInOrder($, steps))
+          .catch(error => $.ui.log(`could not send the picks: ${String(error)}`, { to: 'debug' }))
+      })
       return {
         drop: picks.length === 1 ? `next-steps: ${numbers} runs as a slash command` : `next-steps: ${numbers} sent one after another`,
       }
@@ -715,7 +737,13 @@ export const register: Register = (on, options) => {
         // and one it runs itself ($.command.run) never reaches its own hook.
         const commands = await $.command
           .list()
-          .then(all => all.filter(command => !(command.source === 'plugin' && OWN_COMMANDS.has(command.name))))
+          .then(all =>
+            all.filter(
+              command =>
+                !(command.source === 'plugin' && OWN_COMMANDS.has(command.name)) &&
+                !(command.source === 'builtin' && SESSION_COMMANDS.has(command.name)),
+            ),
+          )
           .catch(() => null)
         const known = commands === null ? null : new Set(commands.map(command => command.name))
         const skills = suggestsSkills && commands !== null ? skillList(commands) : ''
